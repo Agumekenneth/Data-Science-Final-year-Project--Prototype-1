@@ -1,0 +1,12 @@
+# Local Edge-IIoTset research dataset
+/Edge-IIoTset dataset/
+
+# Python generated files
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Environment and secret files
+.env
+.venv/
+venv/
