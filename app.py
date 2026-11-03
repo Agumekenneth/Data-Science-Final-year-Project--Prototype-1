@@ -5,7 +5,9 @@ import joblib
 import pandas as pd
 import streamlit as st
 
+# Import the custom function before loading the saved pipeline.
 from model_preprocessing import convert_to_string_verified
+
 
 # --------------------------------------------------
 # PAGE CONFIGURATION
@@ -19,7 +21,7 @@ st.set_page_config(
 
 
 # --------------------------------------------------
-# EXPECTED MODEL INPUT FEATURES
+# MODEL INPUT CONFIGURATION
 # --------------------------------------------------
 
 EXPECTED_FEATURES = [
@@ -50,19 +52,17 @@ EXPECTED_FEATURES = [
     "mqtt.ver"
 ]
 
-
 CLASS_LABELS = {
     0: "Normal",
     1: "Attack"
 }
 
-
-# --------------------------------------------------
-# LOAD THE SAVED DECISION TREE PIPELINE
-# --------------------------------------------------
-
 MODEL_PATH = Path(__file__).parent / "decision_tree_pipeline.joblib"
 
+
+# --------------------------------------------------
+# LOAD SAVED MODEL
+# --------------------------------------------------
 
 @st.cache_resource
 def load_model():
@@ -98,7 +98,6 @@ st.divider()
 
 try:
     model = load_model()
-
     st.success("Decision Tree model loaded successfully.")
 
 except Exception as error:
@@ -120,7 +119,20 @@ uploaded_file = st.file_uploader(
 
 
 # --------------------------------------------------
-# INPUT VALIDATION
+# RESET RESULTS WHEN A DIFFERENT FILE IS UPLOADED
+# --------------------------------------------------
+
+if uploaded_file is not None:
+
+    file_signature = (uploaded_file.name, uploaded_file.size)
+
+    if st.session_state.get("file_signature") != file_signature:
+        st.session_state.file_signature = file_signature
+        st.session_state.pop("classification_results", None)
+
+
+# --------------------------------------------------
+# INPUT VALIDATION AND CLASSIFICATION
 # --------------------------------------------------
 
 if uploaded_file is not None:
@@ -139,9 +151,7 @@ if uploaded_file is not None:
         ]
 
         if missing_features:
-            st.error(
-                "The uploaded file is missing required features:"
-            )
+            st.error("The uploaded file is missing required features:")
             st.write(missing_features)
             st.stop()
 
@@ -155,7 +165,7 @@ if uploaded_file is not None:
 
         st.dataframe(
             traffic_data[EXPECTED_FEATURES].head(10),
-            use_container_width=True
+            width="stretch"
         )
 
         st.write(f"**Records uploaded:** {len(traffic_data):,}")
@@ -163,8 +173,103 @@ if uploaded_file is not None:
 
         if extra_features:
             st.info(
-                f"{len(extra_features)} additional column(s) "
-                "were found and will not be used for prediction."
+                f"{len(extra_features)} additional column(s) found. "
+                "These will not be used for prediction."
+            )
+
+        st.divider()
+
+        # --------------------------------------------------
+        # RUN CLASSIFICATION
+        # --------------------------------------------------
+
+        st.subheader("Network Traffic Classification")
+
+        if st.button(
+            "Classify Network Traffic",
+            type="primary",
+            use_container_width=True
+        ):
+
+            with st.spinner("Classifying network traffic..."):
+
+                input_features = traffic_data[EXPECTED_FEATURES].copy()
+
+                predictions = model.predict(input_features)
+                probabilities = model.predict_proba(input_features)
+
+                results = input_features.copy()
+
+                results["predicted_class"] = predictions
+
+                results["classification"] = [
+                    CLASS_LABELS.get(int(value), str(value))
+                    for value in predictions
+                ]
+
+                results["confidence"] = (
+                    probabilities.max(axis=1) * 100
+                ).round(2)
+
+                st.session_state.classification_results = results
+
+        # --------------------------------------------------
+        # DISPLAY CLASSIFICATION RESULTS
+        # --------------------------------------------------
+
+        if "classification_results" in st.session_state:
+
+            results = st.session_state.classification_results
+
+            total_records = len(results)
+
+            normal_count = (
+                results["classification"] == "Normal"
+            ).sum()
+
+            attack_count = (
+                results["classification"] == "Attack"
+            ).sum()
+
+            st.subheader("Classification Summary")
+
+            col1, col2, col3 = st.columns(3)
+
+            col1.metric("Total Records", f"{total_records:,}")
+            col2.metric("Normal Traffic", f"{normal_count:,}")
+            col3.metric("Attack Traffic", f"{attack_count:,}")
+
+            st.write("### Classification Results")
+
+            st.dataframe(
+                results,
+                use_container_width=True
+            )
+
+            st.write("### Prediction Confidence")
+
+            st.write(
+                f"Average confidence: "
+                f"**{results['confidence'].mean():.2f}%**"
+            )
+
+            st.caption(
+                "Confidence represents the model's estimated probability "
+                "for its predicted class. It is not a guarantee of correctness."
+            )
+
+            # --------------------------------------------------
+            # DOWNLOAD RESULTS
+            # --------------------------------------------------
+
+            csv_data = results.to_csv(index=False).encode("utf-8")
+
+            st.download_button(
+                label="Download Classification Results",
+                data=csv_data,
+                file_name="network_traffic_classification_results.csv",
+                mime="text/csv",
+                use_container_width=True
             )
 
     except Exception as error:
