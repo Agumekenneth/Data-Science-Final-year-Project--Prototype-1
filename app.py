@@ -5,6 +5,7 @@ import joblib
 import pandas as pd
 import streamlit as st
 
+from model_preprocessing import convert_to_string_verified
 
 # --------------------------------------------------
 # PAGE CONFIGURATION
